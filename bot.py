@@ -8,10 +8,11 @@ TELEGRAM_TOKEN = "8769150868:AAFNvBKyrncD-Af4raa0Kozi0I_M9sJzy0w"
 API_KEY = "12636d8da8210574bc72fb6c191158bb"
 CHANNEL_ID = -1002475367728
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
+# Eski bağlantıları temizle
+requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset=-1")
 
-cache = {}
-CACHE_TIME = 30
+bot = telebot.TeleBot(TELEGRAM_TOKEN, skip_pending=True)
+
 tracked_matches = {}
 last_scores = {}
 
@@ -73,7 +74,7 @@ def check_score_updates():
                             home_score = fixture["goals"]["home"]
                             away_score = fixture["goals"]["away"]
                             status = fixture["fixture"]["status"]["short"]
-                            score_key = f"{fixture_id}"
+                            score_key = str(fixture_id)
                             new_score = f"{home_score}-{away_score}"
                             if status == "FT":
                                 if score_key in last_scores:
@@ -125,4 +126,4 @@ def run_server():
 threading.Thread(target=run_server, daemon=True).start()
 threading.Thread(target=check_score_updates, daemon=True).start()
 print("Bot baslatildi...")
-bot.infinity_polling()
+bot.infinity_polling(allowed_updates=["channel_post"])
