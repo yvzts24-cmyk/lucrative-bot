@@ -4,7 +4,7 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-TELEGRAM_TOKEN = "8769150868:AAHa8BrTy2pa9mUG_eDgzmRp6wGoeW0124Q"
+TELEGRAM_TOKEN = "8769150868:AAFNvBKyrncD-Af4raa0Kozi0I_M9sJzy0w"
 API_KEY = "12636d8da8210574bc72fb6c191158bb"
 CHANNEL_ID = -1002475367728
 
