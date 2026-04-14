@@ -1,129 +1,123 @@
-import telebot
 import requests
 import time
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
 
-TELEGRAM_TOKEN = "8769150868:AAFNvBKyrncD-Af4raa0Kozi0I_M9sJzy0w"
-API_KEY = "12636d8da8210574bc72fb6c191158bb"
-CHANNEL_ID = -1002475367728
+API_KEY = "bdcc55d9443b4efca94ffa1ba7995d00"
+BOT_TOKEN = "8769150868:AAEgJjvJr3olkp5-vEaxLEHlOdWh-pN257g"
 
-# Eski bağlantıları temizle
-requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/getUpdates?offset=-1")
+BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+offset = 0
 
-bot = telebot.TeleBot(TELEGRAM_TOKEN, skip_pending=True)
+print("PRO LIVE BOT AKTİF...")
 
-tracked_matches = {}
-last_scores = {}
+# ---------------- TELEGRAM ----------------
 
-def get_live_fixtures():
-    url = "https://v3.football.api-sports.io/fixtures"
-    headers = {"x-apisports-key": API_KEY}
-    params = {"live": "all"}
+def send(chat_id, text):
+    requests.post(f"{BASE_URL}/sendMessage", data={
+        "chat_id": chat_id,
+        "text": text
+    })
+
+def get_updates():
+    global offset
+    return requests.get(
+        f"{BASE_URL}/getUpdates",
+        params={"offset": offset, "timeout": 30}
+    ).json()
+
+# ---------------- MATCH FINDER ----------------
+
+def get_live_by_league(code):
+    r = requests.get(
+        "https://api.football-data.org/v4/matches",
+        params={"competitions": code, "status": "LIVE"},
+        headers={"X-Auth-Token": API_KEY}
+    ).json()
+
+    matches = r.get("matches", [])
+
+    if not matches:
+        return "❌ Canlı maç yok"
+
+    result = []
+
+    for m in matches:
+        sh = m["score"]["fullTime"]["home"]
+        sa = m["score"]["fullTime"]["away"]
+
+        sh = "-" if sh is None else sh
+        sa = "-" if sa is None else sa
+
+        result.append(
+            f"⚽ {m['homeTeam']['name']} {sh}-{sa} {m['awayTeam']['name']}\n⏱ {m['status']}"
+        )
+
+    return "\n\n".join(result)
+
+# ---------------- TEAM SEARCH ----------------
+
+def get_score(team):
+    r = requests.get(
+        "https://api.football-data.org/v4/matches",
+        headers={"X-Auth-Token": API_KEY}
+    ).json()
+
+    team = team.lower()
+
+    for m in r.get("matches", []):
+        home = m["homeTeam"]["name"].lower()
+        away = m["awayTeam"]["name"].lower()
+
+        if team in home or team in away:
+
+            sh = m["score"]["fullTime"]["home"]
+            sa = m["score"]["fullTime"]["away"]
+
+            sh = "-" if sh is None else sh
+            sa = "-" if sa is None else sa
+
+            return f"⚽ {m['homeTeam']['name']} {sh}-{sa} {m['awayTeam']['name']}\n⏱ {m['status']}"
+
+    return "❌ Maç bulunamadı"
+
+# ---------------- MAIN LOOP ----------------
+
+while True:
     try:
-        response = requests.get(url, headers=headers, params=params)
-        return response.json().get("response", [])
-    except:
-        return []
+        updates = get_updates()
 
-def find_match(query):
-    fixtures = get_live_fixtures()
-    teams = [t.strip().lower() for t in query.split('-')]
-    results = []
-    for fixture in fixtures:
-        home = fixture["teams"]["home"]["name"].lower()
-        away = fixture["teams"]["away"]["name"].lower()
-        match = False
-        if len(teams) == 1:
-            if teams[0] in home or teams[0] in away:
-                match = True
-        else:
-            if (teams[0] in home or teams[0] in away) and (teams[1] in home or teams[1] in away):
-                match = True
-        if match:
-            results.append(fixture)
-    return results
+        for u in updates.get("result", []):
+            offset = u["update_id"] + 1
 
-def format_score(fixture):
-    home_name = fixture["teams"]["home"]["name"]
-    away_name = fixture["teams"]["away"]["name"]
-    home_score = fixture["goals"]["home"]
-    away_score = fixture["goals"]["away"]
-    minute = fixture["fixture"]["status"]["elapsed"]
-    return f"⚽ CANLI MAC\n{home_name} {home_score} - {away_score} {away_name}\n⏱ {minute}. dakika"
+            message = u.get("message") or u.get("channel_post")
 
-def check_score_updates():
-    while True:
-        try:
-            if tracked_matches:
-                fixtures = get_live_fixtures()
-                for query, data in list(tracked_matches.items()):
-                    teams = [t.strip().lower() for t in query.split('-')]
-                    for fixture in fixtures:
-                        home = fixture["teams"]["home"]["name"].lower()
-                        away = fixture["teams"]["away"]["name"].lower()
-                        match = False
-                        if len(teams) == 1:
-                            if teams[0] in home or teams[0] in away:
-                                match = True
-                        else:
-                            if (teams[0] in home or teams[0] in away) and (teams[1] in home or teams[1] in away):
-                                match = True
-                        if match:
-                            fixture_id = fixture["fixture"]["id"]
-                            home_score = fixture["goals"]["home"]
-                            away_score = fixture["goals"]["away"]
-                            status = fixture["fixture"]["status"]["short"]
-                            score_key = str(fixture_id)
-                            new_score = f"{home_score}-{away_score}"
-                            if status == "FT":
-                                if score_key in last_scores:
-                                    home_name = fixture["teams"]["home"]["name"]
-                                    away_name = fixture["teams"]["away"]["name"]
-                                    bot.send_message(CHANNEL_ID, f"🏁 MAC BITTI\n{home_name} {home_score} - {away_score} {away_name}")
-                                    del last_scores[score_key]
-                                    if query in tracked_matches:
-                                        del tracked_matches[query]
-                            elif score_key in last_scores and last_scores[score_key] != new_score:
-                                msg = format_score(fixture)
-                                bot.send_message(CHANNEL_ID, f"🔴 GOL!\n{msg}")
-                                last_scores[score_key] = new_score
-                            elif score_key not in last_scores:
-                                last_scores[score_key] = new_score
-        except Exception as e:
-            print(f"Guncelleme hatasi: {e}")
-        time.sleep(60)
+            if not message:
+                continue
 
-@bot.channel_post_handler(func=lambda message: True)
-def handle_channel_message(message):
-    try:
-        text = message.text.strip()
-        if len(text) < 3:
-            return
-        fixtures = find_match(text)
-        if fixtures:
-            for fixture in fixtures:
-                result = format_score(fixture)
-                bot.send_message(message.chat.id, result)
-                fixture_id = fixture["fixture"]["id"]
-                tracked_matches[text.lower()] = fixture_id
-                last_scores[str(fixture_id)] = f"{fixture['goals']['home']}-{fixture['goals']['away']}"
+            text = message.get("text", "")
+            chat_id = message["chat"]["id"]
+
+            # ---------------- COMMANDS ----------------
+
+            if text.startswith("/skor"):
+                team = text.replace("/skor", "").strip()
+                send(chat_id, get_score(team))
+
+            elif text == "/superlig":
+                send(chat_id, get_live_by_league("SA"))
+
+            elif text == "/premierleague":
+                send(chat_id, get_live_by_league("PL"))
+
+            elif text == "/laliga":
+                send(chat_id, get_live_by_league("PD"))
+
+            elif text == "/bundesliga":
+                send(chat_id, get_live_by_league("BL1"))
+
+            elif text == "/live":
+                send(chat_id, get_live_by_league(None))
+
     except Exception as e:
-        print(f"Hata: {e}")
+        print("HATA:", e)
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b'Bot calisiyor!')
-    def log_message(self, format, *args):
-        pass
-
-def run_server():
-    server = HTTPServer(('0.0.0.0', 10000), Handler)
-    server.serve_forever()
-
-threading.Thread(target=run_server, daemon=True).start()
-threading.Thread(target=check_score_updates, daemon=True).start()
-print("Bot baslatildi...")
-bot.infinity_polling(allowed_updates=["channel_post"])
+    time.sleep(1)
